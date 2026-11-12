@@ -3,6 +3,7 @@ name: ci-php-image
 # Builds the images the PHP apps' CI jobs run in (php/Dockerfile) and pushes them to ghcr.io:
 #   ci-php       serversideup/php:8.5-cli + gd, intl, Node 22, npm and git (for apps whose production image has gd and intl)
 #   ci-php-lean  the same without gd and intl (for apps whose production image has neither)
+#   ci-php-gd    the same with gd alone (for apps whose production image has no extensions but whose tests need gd)
 # They are built when the Dockerfile changes, and weekly so the PHP base image's fixes arrive. The apps pin a dated tag, so
 # a build never changes an app's CI until its tag is moved.
 # This repo is public, so it builds on GitHub-hosted runners (free for public repos) and never on the home server's runners.
@@ -38,6 +39,8 @@ jobs:
             extensions: 'gd intl'
           - name: ci-php-lean
             extensions: ''
+          - name: ci-php-gd
+            extensions: 'gd'
     env:
       IMAGE: ghcr.io/robertheydenrych/${{ matrix.name }}
       EXTENSIONS: ${{ matrix.extensions }}
@@ -66,10 +69,12 @@ jobs:
             npm --version
             git --version
             composer --version
-            for e in $EXTENSIONS; do php -m | grep -x "$e"; done
-            if [ -z "$EXTENSIONS" ]; then
-              if php -m | grep -x -e gd -e intl; then echo "the lean image must not have gd or intl"; exit 1; fi
-            fi'
+            for e in gd intl; do
+              case " $EXTENSIONS " in
+                *" $e "*) php -m | grep -x "$e" ;;
+                *) if php -m | grep -qx "$e"; then echo "$e must not be in this image"; exit 1; fi ;;
+              esac
+            done'
 
       - name: Push
         env:

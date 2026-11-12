@@ -7,6 +7,7 @@ git already installed, so CI jobs don't compile or download them on every run. S
 |---|---|
 | `ghcr.io/robertheydenrych/ci-php` | `gd`, `intl` |
 | `ghcr.io/robertheydenrych/ci-php-lean` | none |
+| `ghcr.io/robertheydenrych/ci-php-gd` | `gd` |
 
 Tags are `YYYYMMDD-<short sha>` (pin one) and `latest`. A workflow builds both when the Dockerfile changes and every
 Monday, and checks what is in each before pushing it.
