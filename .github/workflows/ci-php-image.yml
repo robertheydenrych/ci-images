@@ -1,8 +1,10 @@
 name: ci-php-image
 
-# Builds the image the PHP apps' CI jobs run in (php/Dockerfile) and pushes it to ghcr.io. It is built when the Dockerfile
-# changes, and weekly so the PHP base image's fixes arrive. The apps pin a dated tag, so a build never changes an app's CI
-# until its tag is moved.
+# Builds the images the PHP apps' CI jobs run in (php/Dockerfile) and pushes them to ghcr.io:
+#   ci-php       serversideup/php:8.5-cli + gd, intl, Node 22, npm and git (for apps whose production image has gd and intl)
+#   ci-php-lean  the same without gd and intl (for apps whose production image has neither)
+# They are built when the Dockerfile changes, and weekly so the PHP base image's fixes arrive. The apps pin a dated tag, so
+# a build never changes an app's CI until its tag is moved.
 # This repo is public, so it builds on GitHub-hosted runners (free for public repos) and never on the home server's runners.
 # The workflow has no pull_request trigger, so nothing from a fork can run.
 on:
@@ -23,14 +25,22 @@ concurrency:
   group: ci-php-image
   cancel-in-progress: false
 
-env:
-  IMAGE: ghcr.io/robertheydenrych/ci-php
-
 jobs:
   build:
-    name: Build, check and push the PHP CI image
+    name: Build, check and push ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ci-php
+            extensions: 'gd intl'
+          - name: ci-php-lean
+            extensions: ''
+    env:
+      IMAGE: ghcr.io/robertheydenrych/${{ matrix.name }}
+      EXTENSIONS: ${{ matrix.extensions }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,19 +53,23 @@ jobs:
           tag="$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
           echo "TAG=$tag" >> "$GITHUB_ENV"
           docker build --pull \
+            --build-arg "PHP_EXTENSIONS=$EXTENSIONS" \
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --tag "$IMAGE:$tag" --tag "$IMAGE:latest" php
 
-      # What the jobs rely on, checked before anything is pushed.
+      # What the jobs rely on, checked before anything is pushed: the same tools in both, and gd and intl only in the
+      # image that is meant to have them.
       - name: Check what is in it
         run: |
-          docker run --rm "$IMAGE:$TAG" sh -ec '
-            php -m | grep -x gd
-            php -m | grep -x intl
+          docker run --rm -e EXTENSIONS "$IMAGE:$TAG" sh -ec '
             node --version | grep -E "^v22\."
             npm --version
             git --version
-            composer --version'
+            composer --version
+            for e in $EXTENSIONS; do php -m | grep -x "$e"; done
+            if [ -z "$EXTENSIONS" ]; then
+              if php -m | grep -x -e gd -e intl; then echo "the lean image must not have gd or intl"; exit 1; fi
+            fi'
 
       - name: Push
         env:

@@ -14,7 +14,10 @@ FROM serversideup/php:8.5-cli
 
 USER root
 
-RUN install-php-extensions gd intl
+# Named by the build, so one Dockerfile makes both images: "gd intl" for ci-php (Goosie Lou), empty for ci-php-lean
+# (Budgeter, whose production image has no extensions either).
+ARG PHP_EXTENSIONS="gd intl"
+RUN if [ -n "$PHP_EXTENSIONS" ]; then install-php-extensions $PHP_EXTENSIONS; fi
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git \
