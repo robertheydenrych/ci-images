@@ -81,6 +81,7 @@ jobs:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          docker push "$IMAGE:$TAG"
-          docker push "$IMAGE:latest"
+          # The first push of a brand-new package is answered "denied" once, after the layers are up; the second goes through.
+          push() { docker push "$IMAGE:$TAG" && docker push "$IMAGE:latest"; }
+          push || { echo "push failed, trying once more"; sleep 5; push; }
           echo "Pushed $IMAGE:$TAG" >> "$GITHUB_STEP_SUMMARY"
