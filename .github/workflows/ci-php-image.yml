@@ -1,0 +1,67 @@
+name: ci-php-image
+
+# Builds the image the PHP apps' CI jobs run in (php/Dockerfile) and pushes it to ghcr.io. It is built when the Dockerfile
+# changes, and weekly so the PHP base image's fixes arrive. The apps pin a dated tag, so a build never changes an app's CI
+# until its tag is moved.
+# This repo is public, so it builds on GitHub-hosted runners (free for public repos) and never on the home server's runners.
+# The workflow has no pull_request trigger, so nothing from a fork can run.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'php/**'
+      - '.github/workflows/ci-php-image.yml'
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ci-php-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/robertheydenrych/ci-php
+
+jobs:
+  build:
+    name: Build, check and push the PHP CI image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # --pull: the base image's newest build, which is the point of the weekly run.
+      - name: Build
+        run: |
+          tag="$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          docker build --pull \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --tag "$IMAGE:$tag" --tag "$IMAGE:latest" php
+
+      # What the jobs rely on, checked before anything is pushed.
+      - name: Check what is in it
+        run: |
+          docker run --rm "$IMAGE:$TAG" sh -ec '
+            php -m | grep -x gd
+            php -m | grep -x intl
+            node --version | grep -E "^v22\."
+            npm --version
+            git --version
+            composer --version'
+
+      - name: Push
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$IMAGE:$TAG"
+          docker push "$IMAGE:latest"
+          echo "Pushed $IMAGE:$TAG" >> "$GITHUB_STEP_SUMMARY"
